@@ -1,8 +1,0 @@
-# Gate Caddyfile: TLS-terminate and hand everything to oauth2-proxy,
-# which authenticates (GitHub, single-account allowlist) before proxying
-# to omnigent:8000. Replaces the upstream 3-line Caddyfile that proxied
-# straight to omnigent.
-{$OMNIGENT_DOMAIN} {
-	encode zstd gzip
-	reverse_proxy oauth2-proxy:4180
-}

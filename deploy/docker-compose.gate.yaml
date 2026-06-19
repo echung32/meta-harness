@@ -1,21 +1,25 @@
-# Gate override — layered on top of the official Omnigent stack:
+# Gate override — Option C (Cloudflare Tunnel edge). Layered on the official
+# BASE compose only (NOT the https overlay — there is no Caddy in this design):
+#
 #   docker compose --env-file deploy/.env \
 #     -f ~/omnigent/deploy/docker/docker-compose.yaml \
-#     -f ~/omnigent/deploy/docker/docker-compose.https.yaml \
 #     -f deploy/docker-compose.gate.yaml up -d
 #
-# What it changes vs. the upstream files:
-#   - omnigent: AUTH_ENABLED=0 (single "local" user); republish a
-#     loopback-only port for the local runner (the https overlay reset it).
-#   - oauth2-proxy: NEW full reverse proxy in front of omnigent, GitHub
-#     OAuth restricted to one account (OAUTH2_PROXY_GITHUB_USER).
-#   - caddy: point at oauth2-proxy instead of omnigent.
+# Edge path:  Cloudflare edge (TLS) → cloudflared (outbound tunnel) →
+#             oauth2-proxy (GitHub gate) → omnigent:8000
+#
+# Properties:
+#   - NO inbound ports published to the internet. The only host-published
+#     port is omnigent on 127.0.0.1:8000 (loopback runner path).
+#   - cloudflared dials out to Cloudflare; nothing listens for inbound.
+#   - oauth2-proxy: GitHub OAuth, single-account allowlist (echung32).
+#   - omnigent: AUTH_ENABLED=0 (single "local" user) behind the gate.
 services:
   omnigent:
     environment:
       OMNIGENT_AUTH_ENABLED: "0"
     ports: !override
-      - "127.0.0.1:8000:8000"   # loopback runner path only; not public
+      - "127.0.0.1:8000:8000"   # loopback runner path only; never public
 
   oauth2-proxy:
     image: quay.io/oauth2-proxy/oauth2-proxy:v7.6.0
@@ -24,9 +28,9 @@ services:
     command:
       - --provider=github
       - --http-address=0.0.0.0:4180
-      - --reverse-proxy=true
+      - --reverse-proxy=true                    # trust X-Forwarded-* from cloudflared
       - --upstream=http://omnigent:8000
-      - --email-domain=*                       # restriction is by github user, not email
+      - --email-domain=*                        # restriction is by github user
       - --redirect-url=https://${OMNIGENT_DOMAIN}/oauth2/callback
       - --cookie-secure=true
       - --cookie-domain=${OMNIGENT_DOMAIN}
@@ -35,11 +39,12 @@ services:
       OAUTH2_PROXY_CLIENT_ID: ${OAUTH2_PROXY_CLIENT_ID}
       OAUTH2_PROXY_CLIENT_SECRET: ${OAUTH2_PROXY_CLIENT_SECRET}
       OAUTH2_PROXY_COOKIE_SECRET: ${OAUTH2_PROXY_COOKIE_SECRET}
-      OAUTH2_PROXY_GITHUB_USER: ${OAUTH2_PROXY_GITHUB_USER}   # allowlist; comma-separated for multiple, e.g. alice,bob
+      OAUTH2_PROXY_GITHUB_USER: ${OAUTH2_PROXY_GITHUB_USER}   # comma-separated for multiple
 
-  caddy:
+  cloudflared:
+    image: cloudflare/cloudflared:latest
+    restart: unless-stopped
     depends_on: [oauth2-proxy]
-    volumes:
-      - /home/ethan/meta-harness/deploy/Caddyfile:/etc/caddy/Caddyfile:ro
-      - caddy-data:/data
-      - caddy-config:/config
+    command: tunnel --no-autoupdate run
+    environment:
+      TUNNEL_TOKEN: ${CF_TUNNEL_TOKEN}          # connector token; routes to http://oauth2-proxy:4180
