@@ -1,7 +1,7 @@
 # Design: Cross-vendor writer↔reviewer loop (sub-project B)
 
 - **Date:** 2026-06-19
-- **Status:** Approved — implementing on branch `feat/omnigent-review-loop`
+- **Status:** ✅ Implemented & validated end-to-end (branch `feat/omnigent-review-loop`)
 - **Source of truth for goals:** [PLAN.md](../../../PLAN.md) ("The agent bundle", "Skills layering", "Policies")
 - **Builds on:** sub-project A (control plane stood up + secured; merged as PR #1)
 
@@ -112,6 +112,35 @@ On a dedicated throwaway scratch repo (created outside this repo, e.g. `/tmp/rev
 4. `cost_budget` is active on the orchestrator (gap #3); `AGENTS.md` contract is read by the
    workers (gap #4).
 5. The orchestrator never merges; no secrets in git; the fork's delta from upstream is recorded.
+
+## Validation results (2026-06-19)
+
+Ran end-to-end on the throwaway repo `echung32/review-loop-smoke` (private; red
+`unittest` on `add()`), launching the `review-loop` agent via `omnigent run`
+from the repo dir (interactive REPL in tmux — note `-p` one-shot mode exits when
+the orchestrator yields to await a sub-agent, tearing down its runner; use the
+interactive REPL for async loops).
+
+| Success criterion | Result |
+|---|---|
+| Loop runs → mergeable PR via subscription route | ✅ PR [#2](https://github.com/echung32/review-loop-smoke/pull/2) opened, **not merged** |
+| Reviewed by the **opposite vendor**; bounds at ≤3 rounds | ✅ codex implemented → claude_code reviewed; `review_rounds: 1` |
+| **Superpowers fires inside a sub-agent** (gap #1, the linchpin) | ✅ claude_code worker (cwd `~/review-loop-smoke`) got the `superpowers:using-superpowers` SessionStart injection — methodology layer active in the sub-agent runtime |
+| `cost_budget` active (gap #3) | ✅ policy loaded; `/policies/evaluate` calls observed (not tripped — run was cheap) |
+| `AGENTS.md` contract read by workers (gap #4) | ✅ orchestrator + workers read it; reviewer judged against it ("smallest diff", co-sign trailer, non-blocking nit on stale comment) |
+| Orchestrator never merges | ✅ ended `ready_for_human_merge`, PR left for the human |
+
+Notes / caveats:
+- The bundle skill `review-loop:cross-review` **fired in the orchestrator** (loaded
+  via the `Skill` tool), and Superpowers **injected into the claude_code worker** —
+  together answering PLAN.md open-Q#1 (skills trigger inside the Omnigent
+  sub-agent runtime).
+- The task was a one-line fix, too trivial to *trigger* a deep Superpowers skill
+  (TDD/brainstorming) inside the worker — only the `using-superpowers` entry
+  injection is proven. Codex's Superpowers plugin is installed (verified on disk)
+  but not transcript-verified this run (codex logs to sqlite).
+- The 3-round cap converged at round 1, so the cap's upper bound wasn't
+  exercised; it's encoded in the prompt + `cross-review` skill.
 
 ## Out of scope
 
