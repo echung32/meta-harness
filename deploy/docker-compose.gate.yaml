@@ -18,6 +18,11 @@ services:
   omnigent:
     environment:
       OMNIGENT_AUTH_ENABLED: "0"
+      # Trust the public origin for CSRF/Origin checks on multipart POSTs
+      # (chat uploads) and the realtime WebSocket. Without this the server
+      # only trusts loopback origins and rejects the browser with
+      # "requires a trusted Origin header".
+      OMNIGENT_WS_ALLOWED_ORIGINS: "https://${OMNIGENT_DOMAIN}"
     ports: !override
       - "127.0.0.1:8000:8000"   # loopback runner path only; never public
 
