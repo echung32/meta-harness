@@ -1,0 +1,5 @@
+# Secrets and local stack state — never commit
+deploy/.env
+deploy/emails.txt
+deploy/caddy_data/
+deploy/caddy_config/
