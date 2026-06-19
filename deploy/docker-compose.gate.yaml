@@ -30,6 +30,13 @@ services:
       - --http-address=0.0.0.0:4180
       - --reverse-proxy=true                    # trust X-Forwarded-* from cloudflared
       - --upstream=http://omnigent:8000
+      # Do NOT forward identity to omnigent: it runs AUTH_ENABLED=0 (single
+      # "local" user). If oauth2-proxy injects X-Forwarded-User/Email,
+      # omnigent resolves the browser as the GitHub user (not "local") and
+      # the loopback-registered host disappears from the UI. Strip them so
+      # every gated request is the same single "local" user as the runner.
+      - --pass-basic-auth=false
+      - --pass-user-headers=false
       - --email-domain=*                        # restriction is by github user
       - --redirect-url=https://${OMNIGENT_DOMAIN}/oauth2/callback
       - --cookie-secure=true
