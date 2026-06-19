@@ -2,7 +2,7 @@
 
 Pinned against the local clone at `~/omnigent`.
 
-- **OMNIGENT_REF (HEAD at clone):** `918c153` — *not yet checked out detached; pin before deploy.*
+- **OMNIGENT_REF (pinned, detached HEAD):** `918c153`
 - **Image:** `ghcr.io/omnigent-ai/omnigent-server:${OMNIGENT_IMAGE_TAG:-latest}`
   (pin `OMNIGENT_IMAGE_TAG=sha-<short>` for reproducibility). GHCR package may be
   **private** during alpha → `docker login ghcr.io` with a `read:packages` token first.
