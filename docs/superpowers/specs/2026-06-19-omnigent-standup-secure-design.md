@@ -22,7 +22,7 @@ cost/ask-on-shell policies.
 | Execution plane | **This host itself** (local runner) | No devcontainer; PLAN.md "don't double-sandbox" |
 | Server location | **Co-located** on this box | Single operator; one host |
 | Exposure | **Public IP + Caddy TLS** on a domain | User has a public IP + domain |
-| Front identity gate | **Self-hosted oauth2-proxy**, Google OIDC | Only clean way to allowlist a single *personal Gmail* (native OIDC restricts by domain only) |
+| Front identity gate | **Self-hosted oauth2-proxy**, GitHub OAuth (`--github-user`) | Need a single-account allowlist; native Omnigent OIDC restricts by domain only. (GitHub chosen over Google: simpler app registration, exact single-user allowlist.) |
 | Inner auth | **`OMNIGENT_AUTH_ENABLED=0` (local mode)** | Single operator; oauth2-proxy is the sole gate; loopback runner works with no header plumbing |
 | Compose | **Build on the shipped official stack** + a small gate override | Don't reinvent compose/Caddy |
 | Server port | **8000** | Real Omnigent port (NOT 6767) |
@@ -43,8 +43,8 @@ must never be reachable except via the gate or localhost.
 ```
                 ┌──────────────────── this Ubuntu box (public IP) ────────────────────┐
  Browser/phone ─443─▶ caddy ──▶ oauth2-proxy ──upstream──▶ omnigent:8000 ──┐          │
- (Google login,     (TLS)      (Google OIDC,             (docker net,      │          │
-  cookie)                       allowlist = you@gmail)    AUTH_ENABLED=0)  postgres   │
+ (GitHub login,     (TLS)      (GitHub OAuth,            (docker net,      │          │
+  cookie)                       --github-user=you)       AUTH_ENABLED=0)  postgres   │
                 │                                                    (docker net)      │
                 │   omnigent local runner (runs as ethan on host)                     │
                 │     └─ connects to 127.0.0.1:8000  →  treated as the "local" user   │
@@ -55,7 +55,7 @@ must never be reachable except via the gate or localhost.
 
 ### Two entry paths (the key structural decision)
 
-- **Human path** — `browser → caddy(TLS) → oauth2-proxy(Google OIDC, single-email
+- **Human path** — `browser → caddy(TLS) → oauth2-proxy(GitHub OAuth, single-account
   allowlist) → omnigent:8000`. oauth2-proxy runs as a **full reverse proxy**
   (`--upstream=http://omnigent:8000`); unauthenticated requests never pass it.
 - **Machine path** — the local runner connects to **`127.0.0.1:8000`** (a localhost-only
@@ -70,14 +70,14 @@ which is exactly the single-user model.
 
 1. **UFW** — default-deny inbound; allow only 22/80/443.
 2. **Caddy** — Let's Encrypt TLS; the only service published to `0.0.0.0`.
-3. **oauth2-proxy** — Google OIDC; `--authenticated-emails-file` = your single email;
+3. **oauth2-proxy** — GitHub OAuth; `--github-user` = your single account;
    strips client-supplied `X-Forwarded-*`.
 4. **Network isolation** — omnigent + postgres + oauth2-proxy have no public port; the
    server's only host port is `127.0.0.1:8000`. `AUTH_ENABLED=0` is acceptable *only*
    because of layers 1–3 + this binding.
 
 A flaw in any single outer layer doesn't expose the app by itself; reaching the app at all
-requires either a Google-authenticated session as you, or local process access on the box.
+requires either a GitHub-authenticated session as you, or local process access on the box.
 
 ## Components & file inventory
 
@@ -90,9 +90,9 @@ requires either a Google-authenticated session as you, or local process access o
   Caddy at oauth2-proxy via a custom Caddyfile, (c) re-adds `127.0.0.1:8000:8000` on
   `omnigent` for the loopback runner, (d) sets `OMNIGENT_AUTH_ENABLED=0`.
 - `Caddyfile` — `{$OMNIGENT_DOMAIN} { reverse_proxy oauth2-proxy:4180 }`.
-- `emails.txt` — single line: your email (gitignored).
-- `.env` — all secrets + `OMNIGENT_DOMAIN`, passed via `--env-file` (gitignored).
-- `.gitignore` — `.env`, `emails.txt`, `caddy_*`.
+- `.env` — all secrets + `OMNIGENT_DOMAIN` + `OAUTH2_PROXY_GITHUB_USER`, passed via
+  `--env-file` (gitignored). Single-account allowlist is `--github-user` (env), no file.
+- `.gitignore` — `.env`, `caddy_*`.
 
 **Host-level:** Node 22 (Volta); `omnigent` CLI + local runner run as `ethan`, inheriting
 `~/.claude` + `~/.codex`.
@@ -113,8 +113,8 @@ or build locally.
 
 1. Node 22 via Volta; `node -v`.
 2. Pin the cloned repo to a fixed ref.
-3. Google OAuth client (redirect `https://YOUR-DOMAIN/oauth2/callback`); DNS A record → IP.
-4. Author `deploy/` gate files + `.env` (secrets, `OMNIGENT_DOMAIN`, Google creds, email).
+3. GitHub OAuth App (callback `https://YOUR-DOMAIN/oauth2/callback`); DNS A record → IP.
+4. Author `deploy/` gate files + `.env` (secrets, `OMNIGENT_DOMAIN`, GitHub creds, username).
 5. `docker compose ... up -d`; verify `127.0.0.1:8000` bound localhost-only; Caddy cert issued.
 6. UFW default-deny; allow 22/80/443; verify 8000 unreachable externally.
 7. Install `omnigent` CLI; launch the local runner per the UI's printed command.
@@ -133,7 +133,7 @@ or build locally.
 
 ## Success criteria (definition of done)
 
-1. `https://YOUR-DOMAIN` from a phone browser forces Google login; a non-allowlisted
+1. `https://YOUR-DOMAIN` from a phone browser forces GitHub login; a non-allowlisted
    account is rejected.
 2. After login the UI loads and a session can start on this host.
 3. A trivial task (create `/tmp/hello.txt`) runs on this box via the **subscription** route.

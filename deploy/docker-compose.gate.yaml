@@ -7,8 +7,8 @@
 # What it changes vs. the upstream files:
 #   - omnigent: AUTH_ENABLED=0 (single "local" user); republish a
 #     loopback-only port for the local runner (the https overlay reset it).
-#   - oauth2-proxy: NEW full reverse proxy in front of omnigent, Google
-#     OIDC restricted to one email (emails.txt).
+#   - oauth2-proxy: NEW full reverse proxy in front of omnigent, GitHub
+#     OAuth restricted to one account (OAUTH2_PROXY_GITHUB_USER).
 #   - caddy: point at oauth2-proxy instead of omnigent.
 services:
   omnigent:
@@ -22,22 +22,20 @@ services:
     restart: unless-stopped
     depends_on: [omnigent]
     command:
-      - --provider=google
+      - --provider=github
       - --http-address=0.0.0.0:4180
       - --reverse-proxy=true
       - --upstream=http://omnigent:8000
-      - --email-domain=*
-      - --authenticated-emails-file=/etc/oauth2-proxy/emails.txt
+      - --email-domain=*                       # restriction is by github user, not email
       - --redirect-url=https://${OMNIGENT_DOMAIN}/oauth2/callback
       - --cookie-secure=true
       - --cookie-domain=${OMNIGENT_DOMAIN}
       - --whitelist-domain=${OMNIGENT_DOMAIN}
     environment:
-      OAUTH2_PROXY_CLIENT_ID: ${GOOGLE_CLIENT_ID}
-      OAUTH2_PROXY_CLIENT_SECRET: ${GOOGLE_CLIENT_SECRET}
+      OAUTH2_PROXY_CLIENT_ID: ${OAUTH2_PROXY_CLIENT_ID}
+      OAUTH2_PROXY_CLIENT_SECRET: ${OAUTH2_PROXY_CLIENT_SECRET}
       OAUTH2_PROXY_COOKIE_SECRET: ${OAUTH2_PROXY_COOKIE_SECRET}
-    volumes:
-      - /home/ethan/meta-harness/deploy/emails.txt:/etc/oauth2-proxy/emails.txt:ro
+      OAUTH2_PROXY_GITHUB_USER: ${OAUTH2_PROXY_GITHUB_USER}   # single-account allowlist
 
   caddy:
     depends_on: [oauth2-proxy]

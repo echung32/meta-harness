@@ -6,9 +6,9 @@
 
 **Goal:** Stand up the Omnigent control plane co-located on this Ubuntu host and lock its public web UI behind a single-email oauth2-proxy gate, for a single operator.
 
-**Architecture:** Reuse the official `docker-compose.yaml` + `docker-compose.https.yaml` (Caddy auto-TLS); add `docker-compose.gate.yaml` that inserts oauth2-proxy as a full reverse proxy (`caddy → oauth2-proxy → omnigent:8000`), sets `OMNIGENT_AUTH_ENABLED=0`, and re-adds a `127.0.0.1:8000` publish for the local runner. The runner connects on loopback as the `local` user; the browser path is gated by Google login restricted to one email.
+**Architecture:** Reuse the official `docker-compose.yaml` + `docker-compose.https.yaml` (Caddy auto-TLS); add `docker-compose.gate.yaml` that inserts oauth2-proxy as a full reverse proxy (`caddy → oauth2-proxy → omnigent:8000`), sets `OMNIGENT_AUTH_ENABLED=0`, and re-adds a `127.0.0.1:8000` publish for the local runner. The runner connects on loopback as the `local` user; the browser path is gated by GitHub login restricted to one account.
 
-**Tech Stack:** Docker Compose (≥2.24), Caddy, oauth2-proxy, Postgres, Omnigent (alpha, pinned), Volta/Node 22, Google OIDC, UFW.
+**Tech Stack:** Docker Compose (≥2.24), Caddy, oauth2-proxy, Postgres, Omnigent (alpha, pinned), Volta/Node 22, GitHub OAuth, UFW.
 
 **Spec:** [docs/superpowers/specs/2026-06-19-omnigent-standup-secure-design.md](../specs/2026-06-19-omnigent-standup-secure-design.md)
 
@@ -16,7 +16,7 @@
 
 - **One operator only.** oauth2-proxy allowlist = exactly one email; Omnigent itself runs auth-off (`local` user).
 - **Only Caddy is published to `0.0.0.0`** (80/443). `omnigent`'s only host port is `127.0.0.1:8000` (loopback runner). `postgres` + `oauth2-proxy` have no host port.
-- **No secrets in git.** `deploy/.env`, `deploy/emails.txt` gitignored.
+- **No secrets in git.** `deploy/.env` gitignored.
 - **Subscription route only.** `ANTHROPIC_API_KEY` / `OPENAI_API_KEY` unset in the runner env.
 - **Pin the alpha version.** Detach the clone at a fixed SHA; pin `OMNIGENT_IMAGE_TAG`.
 - **Operator parameters:** `DOMAIN` (your domain) and `EMAIL=ethan.chung8192@gmail.com`. Substitute in files below.
@@ -56,13 +56,13 @@ git commit -m "chore: pin Omnigent ref for deploy"
 
 ---
 
-### Task 3: Google OAuth client + DNS A record
+### Task 3: GitHub OAuth App + DNS A record
 
 **Files:** none (external consoles).
 
-**Interfaces:** Produces `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET` (Task 4); DNS so Caddy can issue a cert (Task 5).
+**Interfaces:** Produces `OAUTH2_PROXY_CLIENT_ID`, `OAUTH2_PROXY_CLIENT_SECRET` (Task 4); DNS so Caddy can issue a cert (Task 5).
 
-- [ ] **Step 1: Create the OAuth client** — Google Cloud Console → APIs & Services → Credentials → Create OAuth client ID → **Web application**. Authorized redirect URI: `https://YOUR-DOMAIN/oauth2/callback`. Record client ID + secret.
+- [ ] **Step 1: Create the OAuth App** — github.com/settings/developers → OAuth Apps → New OAuth App. Homepage `https://YOUR-DOMAIN`; **Authorization callback URL** `https://YOUR-DOMAIN/oauth2/callback`. Record the Client ID + generate a Client secret. Also note your GitHub **username** (for the `--github-user` allowlist).
 - [ ] **Step 2: DNS** — `A` record `YOUR-DOMAIN` → this host's public IP.
 - [ ] **Step 3: Verify** — Run: `dig +short $DOMAIN` → Expected: the host's public IP.
 
@@ -71,7 +71,7 @@ git commit -m "chore: pin Omnigent ref for deploy"
 ### Task 4: Author the gate stack (`deploy/`)
 
 **Files:**
-- Create: `deploy/docker-compose.gate.yaml`, `deploy/Caddyfile`, `deploy/emails.txt`, `deploy/.env`
+- Create: `deploy/docker-compose.gate.yaml`, `deploy/Caddyfile`, `deploy/.env`
 - Modify: `.gitignore` (repo root)
 
 **Interfaces:** Consumes Task 3 creds + DISCOVERED service names. Produces a runnable stack definition for Task 5.
@@ -81,7 +81,6 @@ git commit -m "chore: pin Omnigent ref for deploy"
 Append to `/home/ethan/meta-harness/.gitignore`:
 ```
 deploy/.env
-deploy/emails.txt
 deploy/caddy_data/
 deploy/caddy_config/
 ```
@@ -95,14 +94,14 @@ POSTGRES_PASSWORD=$(python3 -c 'import secrets;print(secrets.token_urlsafe(32))'
 OMNIGENT_DOMAIN=YOUR-DOMAIN
 OMNIGENT_AUTH_ENABLED=0
 OMNIGENT_IMAGE_TAG=latest
-GOOGLE_CLIENT_ID=<from Task 3>
-GOOGLE_CLIENT_SECRET=<from Task 3>
+OAUTH2_PROXY_CLIENT_ID=<from Task 3>
+OAUTH2_PROXY_CLIENT_SECRET=<from Task 3>
+OAUTH2_PROXY_GITHUB_USER=<your-github-username>
 OAUTH2_PROXY_COOKIE_SECRET=$(python3 -c 'import secrets,base64;print(base64.urlsafe_b64encode(secrets.token_bytes(32)).decode())')
 EOF
 chmod 600 .env
-echo "ethan.chung8192@gmail.com" > emails.txt && chmod 600 emails.txt
 ```
-(Then edit `.env` to replace `YOUR-DOMAIN` and the two Google values.)
+(Then edit `.env` to replace `YOUR-DOMAIN`, the two GitHub OAuth values, and your GitHub username.)
 
 - [ ] **Step 3: `deploy/Caddyfile`**
 
@@ -127,22 +126,20 @@ services:
     restart: unless-stopped
     depends_on: [omnigent]
     command:
-      - --provider=google
+      - --provider=github
       - --http-address=0.0.0.0:4180
       - --reverse-proxy=true
       - --upstream=http://omnigent:8000
       - --email-domain=*
-      - --authenticated-emails-file=/etc/oauth2-proxy/emails.txt
       - --redirect-url=https://${OMNIGENT_DOMAIN}/oauth2/callback
       - --cookie-secure=true
       - --cookie-domain=${OMNIGENT_DOMAIN}
       - --whitelist-domain=${OMNIGENT_DOMAIN}
     environment:
-      OAUTH2_PROXY_CLIENT_ID: ${GOOGLE_CLIENT_ID}
-      OAUTH2_PROXY_CLIENT_SECRET: ${GOOGLE_CLIENT_SECRET}
+      OAUTH2_PROXY_CLIENT_ID: ${OAUTH2_PROXY_CLIENT_ID}
+      OAUTH2_PROXY_CLIENT_SECRET: ${OAUTH2_PROXY_CLIENT_SECRET}
       OAUTH2_PROXY_COOKIE_SECRET: ${OAUTH2_PROXY_COOKIE_SECRET}
-    volumes:
-      - /home/ethan/meta-harness/deploy/emails.txt:/etc/oauth2-proxy/emails.txt:ro
+      OAUTH2_PROXY_GITHUB_USER: ${OAUTH2_PROXY_GITHUB_USER}
   caddy:
     depends_on: [oauth2-proxy]
     volumes:
@@ -156,7 +153,7 @@ services:
 ```bash
 cd /home/ethan/meta-harness
 git add deploy/docker-compose.gate.yaml deploy/Caddyfile .gitignore
-git status --short   # confirm deploy/.env and deploy/emails.txt are NOT listed
+git status --short   # confirm deploy/.env is NOT listed
 git commit -m "feat: oauth2-proxy gate override on the official Omnigent stack"
 ```
 
@@ -203,10 +200,10 @@ Expected: `200`/`302` (server reachable on loopback).
 Run: `docker compose ... logs caddy | grep -i "certificate obtained\|serving"` (use the same `-f` set)
 Expected: a Let's Encrypt cert obtained for `$DOMAIN`.
 
-- [ ] **Step 6: Verify the public path forces Google login**
+- [ ] **Step 6: Verify the public path forces GitHub login**
 
 Run: `curl -sS -o /dev/null -w '%{http_code} %{redirect_url}\n' -L --max-redirs 0 https://$DOMAIN/`
-Expected: `302` toward oauth2-proxy `/oauth2/sign_in` or `accounts.google.com` — NOT a 200 app page.
+Expected: `302` toward oauth2-proxy `/oauth2/sign_in` or `github.com/login` — NOT a 200 app page.
 
 ---
 
@@ -254,7 +251,7 @@ omnigent run <agent.yaml> --server http://localhost:8000
 (or `omnigent host http://localhost:8000` if `--help` shows a persistent host verb).
 Expected: runner connects; UI shows this host online.
 
-- [ ] **Step 3: Verify** — In the UI (after Google login), this host appears as an available runner/host.
+- [ ] **Step 3: Verify** — In the UI (after GitHub login), this host appears as an available runner/host.
 
 ---
 
@@ -272,8 +269,8 @@ Expected: runner connects; UI shows this host online.
 
 **Files:** produces `/tmp/hello.txt` on this host as proof.
 
-- [ ] **Step 1:** From your PHONE browser, open `https://$DOMAIN` → Expected: forced Google login.
-- [ ] **Step 2:** Try a NON-allowlisted Google account → Expected: access denied by oauth2-proxy.
+- [ ] **Step 1:** From your PHONE browser, open `https://$DOMAIN` → Expected: forced GitHub login.
+- [ ] **Step 2:** Try a NON-allowlisted GitHub account → Expected: access denied by oauth2-proxy.
 - [ ] **Step 3:** Log in with the allowlisted account → Expected: UI loads; this host selectable.
 - [ ] **Step 4:** Start a session on this host; instruct: "create the file /tmp/hello.txt containing the word omnigent".
 - [ ] **Step 5:** On the host: `cat /tmp/hello.txt` → Expected `omnigent`; confirm the session used the subscription route.
@@ -284,6 +281,6 @@ Expected: runner connects; UI shows this host online.
 
 ## Done means
 
-All five spec success criteria pass: (1) public URL forces Google login + rejects non-allowlisted accounts; (2) UI loads, session starts on this host; (3) trivial task runs here via the subscription route; (4) only 443/80/22 reachable externally, 8000 closed; (5) no secrets in git.
+All five spec success criteria pass: (1) public URL forces GitHub login + rejects non-allowlisted accounts; (2) UI loads, session starts on this host; (3) trivial task runs here via the subscription route; (4) only 443/80/22 reachable externally, 8000 closed; (5) no secrets in git.
 
 **Deferred to sub-project B:** cross-vendor writer↔reviewer loop, Polly/bundle, Superpowers-in-subagent wiring, cost/ask-on-shell policies.
