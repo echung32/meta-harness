@@ -1,0 +1,42 @@
+# AGENTS.md — repo contract for the review-loop agents
+
+> Copy this file to the ROOT of any target repo the `review-loop` orchestrator
+> works in, and fill in the project-specific commands. Both `claude_code` and
+> `codex` read it; `claude_code` also picks it up via the `@AGENTS.md` include in
+> `CLAUDE.md` (see CLAUDE.md.snippet).
+
+## Build / test / lint commands
+
+<!-- Fill these in for THIS project. Examples: -->
+- Install:   `<e.g. uv sync  |  npm ci  |  pip install -e .>`
+- Test:      `<e.g. pytest -q  |  npm test>`
+- Lint:      `<e.g. ruff check .  |  npm run lint>`
+- Typecheck: `<e.g. mypy .  |  npm run typecheck>`
+
+An implementer must drive the code it touched to **green** on test + lint +
+typecheck before opening its PR.
+
+## Definition of done
+
+- The scoped task is complete and all gates above pass.
+- The change is the **smallest diff** that satisfies the acceptance contract —
+  no drive-by refactors or scope creep.
+- New behavior has tests; changed behavior updates them.
+- The PR description says **what** changed and **how it was verified**.
+
+## Hard rules
+
+- **Nobody merges or pushes to a protected branch but the human.** Implementers
+  open a PR on a task branch and stop. The orchestrator never merges. Reviewers
+  never edit — they only report findings.
+- **No force-push, no `rm -rf /`, no hard-reset to a remote ref** (enforced by
+  the `blast_radius` policy, but treat it as a rule, not just a guardrail).
+- Stay strictly within the files/scope named in the task and this contract.
+- Co-sign every commit with the trailer the worker prompts already require:
+  `Co-authored-by: omnigent <noreply@omnigent.ai>`.
+
+## Methodology
+
+Superpowers is active in both CLIs — follow it: brainstorm → spec → plan →
+TDD → inline self-review during the build. Cross-vendor review happens *after*
+the in-family self-review, as a second pair of eyes.

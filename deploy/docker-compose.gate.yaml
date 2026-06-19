@@ -23,6 +23,18 @@ services:
       # only trusts loopback origins and rejects the browser with
       # "requires a trusted Origin header".
       OMNIGENT_WS_ALLOWED_ORIGINS: "https://${OMNIGENT_DOMAIN}"
+      # Sub-project B: register our forked cross-vendor orchestrator as an
+      # always-available built-in (named after the dir → "review-loop"), so it
+      # shows in the web UI agent picker. os.pathsep-separated; idempotent &
+      # content-aware, so a redeploy refreshes a changed spec. The bundle is
+      # bind-mounted read-only below; the host runner fetches it from the
+      # server when a session starts.
+      OMNIGENT_BUILTIN_AGENT_DIRS: /agents/review-loop
+    volumes:
+      # Absolute host path (via .env) — with multiple -f files compose resolves
+      # a relative path against the FIRST file's dir (~/omnigent/...), not this
+      # repo. META_HARNESS_DIR is the checkout root, set in deploy/.env.
+      - ${META_HARNESS_DIR}/agents/review-loop:/agents/review-loop:ro
     ports: !override
       - "127.0.0.1:8000:8000"   # loopback runner path only; never public
 
