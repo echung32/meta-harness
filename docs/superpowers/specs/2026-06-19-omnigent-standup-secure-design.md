@@ -70,8 +70,9 @@ which is exactly the single-user model.
 
 1. **UFW** — default-deny inbound; allow only 22/80/443.
 2. **Caddy** — Let's Encrypt TLS; the only service published to `0.0.0.0`.
-3. **oauth2-proxy** — GitHub OAuth; `--github-user` = your single account;
-   strips client-supplied `X-Forwarded-*`.
+3. **oauth2-proxy** — GitHub OAuth; `--github-user` = your account(s) (comma-separated
+   `OAUTH2_PROXY_GITHUB_USER` allows your own personal + work logins — all still resolve to
+   the one `local` Omnigent user); strips client-supplied `X-Forwarded-*`.
 4. **Network isolation** — omnigent + postgres + oauth2-proxy have no public port; the
    server's only host port is `127.0.0.1:8000`. `AUTH_ENABLED=0` is acceptable *only*
    because of layers 1–3 + this binding.
