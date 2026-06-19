@@ -2,20 +2,22 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:executing-plans (inline) to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-> **Rev 2** — rebased on the real Omnigent deploy after Task 2 discovery. Port is **8000**; we build on the **shipped** compose + Caddy HTTPS overlay and add a gate override; Omnigent runs in **local mode** (`AUTH_ENABLED=0`) behind oauth2-proxy. See [DISCOVERED.md](../../../deploy/DISCOVERED.md).
+> **Rev 2** — rebased on the real Omnigent deploy after Task 2 discovery. Port is **8000**; we build on the **shipped** compose + a gate override; Omnigent runs in **local mode** (`AUTH_ENABLED=0`) behind oauth2-proxy. See [DISCOVERED.md](../../../deploy/DISCOVERED.md).
+
+> ⚠️ **AS-BUILT (rev 3): the edge changed from Caddy to a Cloudflare Tunnel.** The campus host has Cloudflare-proxied DNS, so we use `cloudflared` (outbound-only, zero inbound ports) → oauth2-proxy → omnigent, and dropped Caddy + the HTTPS overlay. Tasks 4–6 below still describe the original Caddy path; the **authoritative as-built design is the [spec rev 3](../specs/2026-06-19-omnigent-standup-secure-design.md)** and the real files in `deploy/`. Auth gate is **GitHub** (not Google).
 
 **Goal:** Stand up the Omnigent control plane co-located on this Ubuntu host and lock its public web UI behind a single-email oauth2-proxy gate, for a single operator.
 
 **Architecture:** Reuse the official `docker-compose.yaml` + `docker-compose.https.yaml` (Caddy auto-TLS); add `docker-compose.gate.yaml` that inserts oauth2-proxy as a full reverse proxy (`caddy → oauth2-proxy → omnigent:8000`), sets `OMNIGENT_AUTH_ENABLED=0`, and re-adds a `127.0.0.1:8000` publish for the local runner. The runner connects on loopback as the `local` user; the browser path is gated by GitHub login restricted to one account.
 
-**Tech Stack:** Docker Compose (≥2.24), Caddy, oauth2-proxy, Postgres, Omnigent (alpha, pinned), Volta/Node 22, GitHub OAuth, UFW.
+**Tech Stack (as-built):** Docker Compose, **cloudflared (Cloudflare Tunnel)**, oauth2-proxy, Postgres, Omnigent (alpha, pinned), Volta/Node 22, GitHub OAuth, UFW.
 
 **Spec:** [docs/superpowers/specs/2026-06-19-omnigent-standup-secure-design.md](../specs/2026-06-19-omnigent-standup-secure-design.md)
 
 ## Global Constraints
 
 - **One operator only.** oauth2-proxy allowlist = exactly one email; Omnigent itself runs auth-off (`local` user).
-- **Only Caddy is published to `0.0.0.0`** (80/443). `omnigent`'s only host port is `127.0.0.1:8000` (loopback runner). `postgres` + `oauth2-proxy` have no host port.
+- **No inbound ports** (as-built): cloudflared is outbound-only; UFW denies all inbound except 22. `omnigent`'s only host port is `127.0.0.1:8000` (loopback runner); `postgres`/`oauth2-proxy`/`cloudflared` publish nothing.
 - **No secrets in git.** `deploy/.env` gitignored.
 - **Subscription route only.** `ANTHROPIC_API_KEY` / `OPENAI_API_KEY` unset in the runner env.
 - **Pin the alpha version.** Detach the clone at a fixed SHA; pin `OMNIGENT_IMAGE_TAG`.
